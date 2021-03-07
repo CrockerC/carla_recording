@@ -29,10 +29,6 @@ Use ARROWS or WASD keys for control.
     Z/X          : toggle right/left blinker
     I            : toggle interior light
 
-    TAB          : change sensor position
-    ` or N       : next sensor
-    [1-9]        : change to sensor [1-9]
-    G            : toggle radar visualization
     C            : change weather (Shift+C reverse)
     Backspace    : change vehicle
 
@@ -86,11 +82,9 @@ import math
 import random
 import re
 import weakref
-from PIL import Image
-import multiprocessing
 import threading
-import time
 import pickle
+import time
 try:
     import pygame
     from pygame.locals import KMOD_CTRL
@@ -154,9 +148,11 @@ def get_actor_display_name(actor, truncate=250):
     name = ' '.join(actor.type_id.replace('_', '.').title().split('.')[1:])
     return (name[:truncate - 1] + u'\u2026') if len(name) > truncate else name
 
+
 buf = []
 fid = 0
-
+scale = 4
+camera_res = (str(640*scale), str(480*scale))
 
 # todo, would it be easier to just use saveData? since i have to write a script to make it into an mp4 video anyways
 # todo, since using saveData is magnitudes faster than process_and_save
@@ -165,26 +161,27 @@ def fast_save_to_disk(path, image, velocity):
     global fid
     size = (image.width, image.height)
     speed = sum([velocity.x**2, velocity.y**2, velocity.z**2])**.5
-    data = (path, bytes(image.raw_data), size, speed)
+    data = (path, image, size, speed)
 
     buf.append(data)
     if len(buf) >= 20:
-        threading.Thread(target=process_and_save, args=(buf.copy(), 'rawFrames\\rawFrames' + str(fid))).start()
+        threading.Thread(target=saveData, args=(buf.copy(), 'rawFrames\\' + str(fid))).start()
         buf = []
         fid += 1
 
 
 def saveData(rawData, path):
+    data = []
+    for datum in rawData:
+        data.append((datum[0], datum[1].raw_data.tobytes(), datum[2], datum[3]))
     with open(path, "wb") as out:
-        pickle.dump(rawData, out, -1)
+        pickle.dump(data, out, -1)
 
 
 def process_and_save(rawData, path=None):
     for data in rawData:
         path, raw_bytes, size, speed = data
-        png_data = Image.frombytes('RGB', size, raw_bytes, 'raw', 'BGRX')
-        png_data.save(path + '-' + str(speed) + '.png')
-
+        raw_bytes.save_to_disk(path + '-' + str(speed) + '.png')
 
 # ==============================================================================
 # -- World ---------------------------------------------------------------------
@@ -210,6 +207,8 @@ class World(object):
         self._weather_index = 0
         self._actor_filter = args.filter
         self._gamma = args.gamma
+
+        # todo, wtf are these two
         self.player_max_speed = 1.589
         self.player_max_speed_fast = 3.713
         self.restart()
@@ -218,13 +217,13 @@ class World(object):
         self.recording_start = 0
         self.constant_velocity_enabled = False
 
-    # todo, get a single car / list of cars + camera positions rather than a randomized car each time
     def restart(self):
         # Keep same camera config if the camera manager exists.
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
         cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
         # Get a random blueprint.
-        blueprint = random.choice(self.world.get_blueprint_library().filter(self._actor_filter))
+        #blueprint = random.choice(self.world.get_blueprint_library().filter(self._actor_filter))
+        blueprint = self.world.get_blueprint_library().filter('model3')[0]
         blueprint.set_attribute('role_name', self.actor_role_name)
         if blueprint.has_attribute('color'):
             color = random.choice(blueprint.get_attribute('color').recommended_values)
@@ -338,21 +337,10 @@ class KeyboardControl(object):
                     world.hud.toggle_info()
                 elif event.key == K_h or (event.key == K_SLASH and pygame.key.get_mods() & KMOD_SHIFT):
                     world.hud.help.toggle()
-                elif event.key == K_TAB:
-                    pass
-                    # world.camera_manager.toggle_camera()
                 elif event.key == K_c and pygame.key.get_mods() & KMOD_SHIFT:
                     world.next_weather(reverse=True)
                 elif event.key == K_c:
                     world.next_weather()
-                elif event.key == K_g:
-                    pass
-                elif event.key == K_BACKQUOTE:
-                    # world.camera_manager.next_sensor()
-                    pass
-                elif event.key == K_n:
-                    # world.camera_manager.next_sensor()
-                    pass
                 elif event.key == K_w and (pygame.key.get_mods() & KMOD_CTRL):
                     if world.constant_velocity_enabled:
                         world.player.disable_constant_velocity()
@@ -467,12 +455,12 @@ class KeyboardControl(object):
             world.player.apply_control(self._control)
 
     def _parse_vehicle_keys(self, keys, milliseconds):
-        if keys[K_UP] or keys[K_w]:
+        if keys[K_w]:
             self._control.throttle = min(self._control.throttle + 0.01, 1)
         else:
             self._control.throttle = 0.0
 
-        if keys[K_DOWN] or keys[K_s]:
+        if keys[K_s]:
             self._control.brake = min(self._control.brake + 0.2, 1)
         else:
             self._control.brake = 0
@@ -496,7 +484,7 @@ class KeyboardControl(object):
 
     def _parse_walker_keys(self, keys, milliseconds, world):
         self._control.speed = 0.0
-        if keys[K_DOWN] or keys[K_s]:
+        if keys[K_s]:
             self._control.speed = 0.0
         if keys[K_LEFT] or keys[K_a]:
             self._control.speed = .01
@@ -504,7 +492,7 @@ class KeyboardControl(object):
         if keys[K_RIGHT] or keys[K_d]:
             self._control.speed = .01
             self._rotation.yaw += 0.08 * milliseconds
-        if keys[K_UP] or keys[K_w]:
+        if keys[K_w]:
             self._control.speed = world.player_max_speed_fast if pygame.key.get_mods() & KMOD_SHIFT else world.player_max_speed
         self._control.jump = keys[K_SPACE]
         self._rotation.yaw = round(self._rotation.yaw, 1)
@@ -717,7 +705,7 @@ class CameraManager(object):
         Attachment = carla.AttachmentType
         self._camera_transforms = [
             (carla.Transform(carla.Location(x=-5.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.SpringArm),
-            (carla.Transform(carla.Location(x=1.4, z=1.7)), Attachment.Rigid)
+            (carla.Transform(carla.Location(x=.9, z=1.2)), Attachment.Rigid)
         ]
         self.transform_index = 1
         self.sensorsRAW = [
@@ -732,14 +720,12 @@ class CameraManager(object):
             if item[0].startswith('sensor.camera'):
                 if i == 1:
                     bp.set_attribute('sensor_tick', str(self.frametime))
-                    bp.set_attribute('image_size_x', '640')
-                    bp.set_attribute('image_size_y', '480')
+                    bp.set_attribute('image_size_x', camera_res[0])
+                    bp.set_attribute('image_size_y', camera_res[1])
+                    bp.set_attribute('gamma', '1.4')
                 else:
                     bp.set_attribute('image_size_x', str(hud.dim[0]))
                     bp.set_attribute('image_size_y', str(hud.dim[1]))
-                # if item.Attachment == Attachment.Rigid:
-                #    bp.set_attribute('image_size_x', '640')
-                #    bp.set_attribute('image_size_y', '480')
 
                 for attr_name, attr_value in item[3].items():
                     bp.set_attribute(attr_name, attr_value)
@@ -747,19 +733,10 @@ class CameraManager(object):
             item.append(bp)
         self.index = None
 
-    #def toggle_camera(self):
-    #    self.transform_index = (self.transform_index + 1) % len(self._camera_transforms)
-    #    self.set_sensor(self.index, notify=False, force_respawn=True)
-
     def set_sensor(self, index, notify=True, force_respawn=False):
         index = index % len(self.sensorsRAW)
         needs_respawn = not (len(self.sensors) == index+1)
-        #needs_respawn = True if self.index is None else \
-        #    (force_respawn or (self.sensorsRAW[index][2] != self.sensorsRAW[self.index][2]))
         if needs_respawn:
-            #if self.sensor is not None:
-            #    self.sensor.destroy()
-            #    self.surface = None
             sensor = self._parent.get_world().spawn_actor(
                 self.sensorsRAW[index][-1],
                 self._camera_transforms[index][0],
@@ -775,9 +752,6 @@ class CameraManager(object):
         if notify:
             self.hud.notification(self.sensorsRAW[index][2])
         self.index = index
-
-    #def next_sensor(self):
-    #    self.set_sensor(self.index + 1)
 
     def toggle_recording(self):
         self.recording = not self.recording
@@ -817,7 +791,6 @@ def game_loop(args):
     world = None
 
     try:
-        print(args.host, args.port)
         client = carla.Client(args.host, args.port)
         client.set_timeout(2.0)
 
@@ -826,6 +799,11 @@ def game_loop(args):
             pygame.HWSURFACE | pygame.DOUBLEBUF)
 
         hud = HUD(args.width, args.height)
+        if client.get_world().get_map().name != args.map:
+            try:
+                client.load_world(args.map)  # set the map
+            except RuntimeError:
+                time.sleep(5)
         world = World(client.get_world(), hud, args)
         controller = KeyboardControl(world, args.autopilot)
 
@@ -896,8 +874,12 @@ def main():
         default=2.2,
         type=float,
         help='Gamma correction of the camera (default: 2.2)')
+    argparser.add_argument(
+        '-m', '--map',
+        default="Town03",
+        type=str,
+        help='Map to drive around on (default: Town03)')
     args = argparser.parse_args()
-    print(args)
 
     args.width, args.height = [int(x) for x in args.res.split('x')]
 
