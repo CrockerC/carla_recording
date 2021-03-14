@@ -72,7 +72,7 @@ import carla
 
 from carla import ColorConverter as cc
 from carla import VehicleLightState as vls
-
+from event_sequences import main_sequence as seq
 
 import argparse
 import collections
@@ -85,6 +85,9 @@ import weakref
 import threading
 import pickle
 import time
+import subprocess
+import signal
+
 try:
     import pygame
     from pygame.locals import KMOD_CTRL
@@ -120,6 +123,7 @@ try:
     from pygame.locals import K_i
     from pygame.locals import K_z
     from pygame.locals import K_x
+    from pygame.locals import K_KP0
     from pygame.locals import K_MINUS
     from pygame.locals import K_EQUALS
 
@@ -136,6 +140,9 @@ except ImportError:
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
 
+# todo, add scripting to fire off events in sequence via keyboard, like make a list of them
+# todo, and then fire them off as the key is pushed, will have to hardcode each set of events,
+# todo, i can hardcode them in their own files so that it doesnt muddy up this one
 
 def find_weather_presets():
     rgx = re.compile('.+?(?:(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|$)')
@@ -152,15 +159,14 @@ def get_actor_display_name(actor, truncate=250):
 buf = []
 fid = 0
 scale = 4
-camera_res = (str(640*scale), str(480*scale))
+camera_res = (str(640 * scale), str(480 * scale))
 
-# todo, would it be easier to just use saveData? since i have to write a script to make it into an mp4 video anyways
-# todo, since using saveData is magnitudes faster than process_and_save
+
 def fast_save_to_disk(path, image, velocity):
     global buf
     global fid
     size = (image.width, image.height)
-    speed = sum([velocity.x**2, velocity.y**2, velocity.z**2])**.5
+    speed = sum([velocity.x ** 2, velocity.y ** 2, velocity.z ** 2]) ** .5 * 3.6
     data = (path, image, size, speed)
 
     buf.append(data)
@@ -182,6 +188,7 @@ def process_and_save(rawData, path=None):
     for data in rawData:
         path, raw_bytes, size, speed = data
         raw_bytes.save_to_disk(path + '-' + str(speed) + '.png')
+
 
 # ==============================================================================
 # -- World ---------------------------------------------------------------------
@@ -208,7 +215,6 @@ class World(object):
         self._actor_filter = args.filter
         self._gamma = args.gamma
 
-        # todo, wtf are these two
         self.player_max_speed = 1.589
         self.player_max_speed_fast = 3.713
         self.restart()
@@ -222,7 +228,7 @@ class World(object):
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
         cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
         # Get a random blueprint.
-        #blueprint = random.choice(self.world.get_blueprint_library().filter(self._actor_filter))
+        # blueprint = random.choice(self.world.get_blueprint_library().filter(self._actor_filter))
         blueprint = self.world.get_blueprint_library().filter('model3')[0]
         blueprint.set_attribute('role_name', self.actor_role_name)
         if blueprint.has_attribute('color'):
@@ -303,6 +309,9 @@ class KeyboardControl(object):
 
     def __init__(self, world, start_in_autopilot):
         self._autopilot_enabled = start_in_autopilot
+        self.event_ind = 0
+        self.seq = seq()
+        self.pro = None
         if isinstance(world.player, carla.Vehicle):
             self._control = carla.VehicleControl()
             self._lights = carla.VehicleLightState.NONE
@@ -433,6 +442,8 @@ class KeyboardControl(object):
                         current_lights ^= carla.VehicleLightState.LeftBlinker
                     elif event.key == K_x:
                         current_lights ^= carla.VehicleLightState.RightBlinker
+                    elif event.key == K_KP0:
+                        self._next_event(world)
 
         if not self._autopilot_enabled:
             if isinstance(self._control, carla.VehicleControl):
@@ -453,6 +464,36 @@ class KeyboardControl(object):
             elif isinstance(self._control, carla.WalkerControl):
                 self._parse_walker_keys(pygame.key.get_pressed(), clock.get_time(), world)
             world.player.apply_control(self._control)
+
+    def _next_event(self, world):
+        eventID = self.event_ind
+        self.event_ind += 1
+
+        if eventID >= len(self.seq):
+            return
+
+        # todo, execute event
+        event = self.seq[eventID]
+
+        # call the event with the arguments (and a second optional call)
+        print(event)
+
+        if event[0] == "w":
+            world.world.set_weather(event[1])
+
+        if event[0] == "t":
+            try:
+                os.kill(self.pro.pid, signal.CTRL_C_EVENT)
+                time.sleep(.05)
+
+            # it wont work the first time
+            except AttributeError:
+                pass
+
+            # i dont know why but killing the subprocess alco control+c s the parent one, so ignore that signal
+            except KeyboardInterrupt:
+                pass
+            self.pro = subprocess.Popen(event[1], shell=False)
 
     def _parse_vehicle_keys(self, keys, milliseconds):
         if keys[K_w]:
@@ -735,7 +776,7 @@ class CameraManager(object):
 
     def set_sensor(self, index, notify=True, force_respawn=False):
         index = index % len(self.sensorsRAW)
-        needs_respawn = not (len(self.sensors) == index+1)
+        needs_respawn = not (len(self.sensors) == index + 1)
         if needs_respawn:
             sensor = self._parent.get_world().spawn_actor(
                 self.sensorsRAW[index][-1],
@@ -808,6 +849,7 @@ def game_loop(args):
         controller = KeyboardControl(world, args.autopilot)
 
         clock = pygame.time.Clock()
+
         while True:
             clock.tick_busy_loop(60)
             if controller.parse_events(client, world, clock):
@@ -817,6 +859,10 @@ def game_loop(args):
             pygame.display.flip()
 
     finally:
+        try:
+            os.kill(controller.pro.pid, signal.CTRL_C_EVENT)
+        except AttributeError:
+            pass
         if world and world.recording_enabled:
             client.stop_recorder()
 
@@ -898,5 +944,5 @@ def main():
 
 
 if __name__ == '__main__':
-    # todo, make it wait for the frame buffer to flush before quitting
     main()
+
