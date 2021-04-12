@@ -1,5 +1,4 @@
 from os import listdir
-import re
 import cv2
 import sys
 from PIL import Image as image
@@ -10,6 +9,8 @@ import time
 import math
 
 
+# todo, write to the video while processing new frames
+
 class process:
     def __init__(self):
         self.num_threads = 6
@@ -17,7 +18,13 @@ class process:
         self.sync_buff = {}
         self.threads = []
         self.batches = {}  # dictionary of paths to the batch
+        self.out = None
+        self.speed_at_frame = []
+        self.write_thread = None
+
+        # todo, is the semaphore even needed?
         self.sem = threading.Semaphore()
+        self.writing_done = threading.Event()
 
     def process_all(self):
         speed_path = 'processed_out\\speed' + str(vidNum) + '.txt'
@@ -26,14 +33,12 @@ class process:
 
         frame_list = listdir(frames_path)
 
-        # sort the list by number
+        # sort the list by number value
         frame_list = [int(f) for f in frame_list]
         frame_list = sorted(frame_list)
         frame_list = [str(f) for f in frame_list]
 
-        speed_at_frame = []
-
-        out = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), 20, self.downscaled_size)
+        self.out = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), 20, self.downscaled_size)
 
         # pass data to threads and get data back
         num_loops = math.ceil(len(frame_list) / self.num_threads)
@@ -48,18 +53,36 @@ class process:
             for j in range(len(self.threads)):
                 self.threads[j].join()
 
-            for j in range(len(self.threads)):
-                for k in range(len(self.sync_buff[j])):
-                    out.write(self.sync_buff[j][k][0])
-                    speed_at_frame.append(self.sync_buff[j][k][1])
+            try:
+                self.write_thread.join()  # make sure that the writing thread has finised before starting a new one
+            except AttributeError:  # since the first time it will be none
+                pass
+            self.write_thread = threading.Thread(target=self.write_to_video, args=(self.sync_buff.copy(),))
+            self.writing_done.clear()
+            self.write_thread.start()
+
+
+            #for j in range(len(self.threads)):
+            #    for k in range(len(self.sync_buff[j])):
+            #        self.out.write(self.sync_buff[j][k][0])
+            #        self.speed_at_frame.append(self.sync_buff[j][k][1])
 
             self.threads = []
 
-        out.release()
+        self.writing_done.wait()
+        self.out.release()
 
         with open(speed_path, 'w') as f:
-            frames = '\n'.join(speed_at_frame)
+            frames = '\n'.join(self.speed_at_frame)
             f.write(frames)
+
+    # todo, finish and implement this
+    def write_to_video(self, frames):
+        for i in range(len(self.threads)):
+            for j in range(len(frames[i])):
+                self.out.write(frames[i][j][0])
+                self.speed_at_frame.append(frames[i][j][1])
+        self.writing_done.set()
 
     def thread(self, tid, batch):
         data = self.process_raw(batch)
@@ -83,20 +106,20 @@ class process:
         return processed
 
 
+if __name__ == "__main__":
+    try:
+        vidNum = int(sys.argv[1])
+    except IndexError:
+        print("IndexError: Must give vidNum")
+        sys.exit(-1)
+    except ValueError:
+        print("ValueError: Must give integer")
+        sys.exit(-1)
 
-try:
-    vidNum = int(sys.argv[1])
-except IndexError:
-    print("IndexError: Must give vidNum")
-    sys.exit(-1)
-except ValueError:
-    print("ValueError: Must give integer")
-    sys.exit(-1)
+    if vidNum < 0:
+        raise TypeError("TypeError: vidNum must be a positive integer")
 
-if vidNum < 0:
-    raise TypeError("TypeError: vidNum must be a positive integer")
-
-writer = process()
-start = time.time()
-writer.process_all()
-print(time.time() - start)
+    writer = process()
+    start = time.time()
+    writer.process_all()
+    print(time.time() - start)

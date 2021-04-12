@@ -158,7 +158,7 @@ def get_actor_display_name(actor, truncate=250):
 
 buf = []
 fid = 0
-scale = 4
+scale = 2.5
 camera_res = (str(640 * scale), str(480 * scale))
 
 
@@ -222,6 +222,11 @@ class World(object):
         self.recording_enabled = False
         self.recording_start = 0
         self.constant_velocity_enabled = False
+
+        settings = self.world.get_settings()
+        settings.fixed_delta_seconds = 1 / 20
+        #settings.synchronous_mode = True
+        self.world.apply_settings(settings)
 
     def restart(self):
         # Keep same camera config if the camera manager exists.
@@ -484,7 +489,7 @@ class KeyboardControl(object):
         if event[0] == "t":
             try:
                 os.kill(self.pro.pid, signal.CTRL_C_EVENT)
-                time.sleep(.05)
+                time.sleep(.1)
 
             # it wont work the first time
             except AttributeError:
@@ -736,13 +741,16 @@ class HelpText(object):
 class CameraManager(object):
     def __init__(self, parent_actor, hud, gamma_correction):
         self.sensor = None
+        self.lastTime = 0
+        self.skipped_frames = 0
+        self.total_frames = 0
         self.surface = None
         self._parent = parent_actor
         self.hud = hud
         self.recording = False
         self.sensors = []
         bound_y = 0.5 + self._parent.bounding_box.extent.y
-        self.frametime = 2
+        self.frametime = 1 / 20
         Attachment = carla.AttachmentType
         self._camera_transforms = [
             (carla.Transform(carla.Location(x=-5.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.SpringArm),
@@ -760,7 +768,7 @@ class CameraManager(object):
             bp = bp_library.find(item[0])
             if item[0].startswith('sensor.camera'):
                 if i == 1:
-                    bp.set_attribute('sensor_tick', str(self.frametime))
+                    # bp.set_attribute('sensor_tick', str(self.frametime))
                     bp.set_attribute('image_size_x', camera_res[0])
                     bp.set_attribute('image_size_y', camera_res[1])
                     bp.set_attribute('gamma', '1.4')
@@ -811,6 +819,15 @@ class CameraManager(object):
         if self.recording and record:
             # threading.Thread(target=image.save_to_disk, args=('_out/%08d' % image.frame,)).start()
             # image.save_to_disk('_out/%08d' % image.frame)
+
+            delta_t = image.timestamp - self.lastTime
+            self.total_frames += 1
+            if delta_t > .06:
+                self.skipped_frames += 1
+            if self.total_frames % 10 == 0:
+                print(self.skipped_frames / self.total_frames * 100)
+
+            self.lastTime = image.timestamp
             fast_save_to_disk('_out/%08d' % image.frame, image, self._parent.get_velocity())
         elif not record:
             image.convert(self.sensorsRAW[self.index][1])
@@ -819,6 +836,9 @@ class CameraManager(object):
             array = array[:, :, :3]
             array = array[:, :, ::-1]
             self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
+        elif not self.recording:
+            self.total_frames = 0
+            self.skipped_frames = 0
 
 
 # ==============================================================================
@@ -945,4 +965,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
