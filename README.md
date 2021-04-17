@@ -24,6 +24,7 @@ Installation:
 
 
 Usage:
+
 Basic usage of the script is “python3 manual_control_with_recording.py”, which will default to using Carla’s town 3. Use the “r” key on your keyboard to start and stop recording
 	manual_control_with_recording.py arguments: 
 
