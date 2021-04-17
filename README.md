@@ -47,7 +47,6 @@ make_video.py arguments:
 make_video.py takes the raw data outputted by the manual_control script, downscales (CAN ONLY DOWNSCALE) and converts it to an mp4 video as well as giving a .txt file with the speed of the car in every frame
 
 event_sequences.py:
-
 	file contains a set of weather parameters, as well as a class which contains a single variable called self.seq. This is a list of events that the user can fire off using the number pad “0” key. Simply follow the format of the examples already in the file if you want to define your own.
 
 
