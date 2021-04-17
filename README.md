@@ -4,6 +4,7 @@ Requirements:
 	Note: All development was done on the pre-compiled release of Carla. So requirements are based on that.
 	Carla’s quickstart linked here: https://carla.readthedocs.io/en/latest/start_quickstart/
 	Copy of the requirements with some notes and additions below
+	
 	•	Any 64-bit OS
 	•	A powerful GPU, Carla recommends the server GPU to be at least “6 GB”, which is a bit overgeneralized. An RTX 3080 was used for our development. However GPU requirement is dependent on your usage. 
 	•	A powerful CPU is also needed for smooth operation. An AMD 3700x was used for our development. High single core performance is preferable over high core count.
