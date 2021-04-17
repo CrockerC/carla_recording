@@ -1,5 +1,5 @@
-from os import listdir
-import cv2
+from os import listdir, path
+import os
 import sys
 from PIL import Image as image
 import pickle
@@ -7,6 +7,7 @@ import numpy as np
 import threading
 import time
 import math
+import cv2
 
 
 # todo, write to the video while processing new frames
@@ -14,22 +15,24 @@ import math
 class process:
     def __init__(self):
         self.num_threads = 6
-        self.downscaled_size = (640, 480)
+        self.downscaled_size = (640, 480)  # resolution of the final video
         self.sync_buff = {}
         self.threads = []
         self.batches = {}  # dictionary of paths to the batch
         self.out = None
         self.speed_at_frame = []
         self.write_thread = None
+        self.framerate = 20
 
-        # todo, is the semaphore even needed?
-        self.sem = threading.Semaphore()
         self.writing_done = threading.Event()
 
     def process_all(self):
         speed_path = 'processed_out\\speed' + str(vidNum) + '.txt'
         video_path = 'processed_out\\video' + str(vidNum) + '.mp4'
         frames_path = 'rawFrames'
+
+        if path.exists(video_path):
+            raise FileExistsError("Error this video already exists! Please pick another video number!")
 
         frame_list = listdir(frames_path)
 
@@ -38,15 +41,19 @@ class process:
         frame_list = sorted(frame_list)
         frame_list = [str(f) for f in frame_list]
 
-        self.out = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), 20, self.downscaled_size)
+        self.out = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), self.framerate, self.downscaled_size)
 
         # pass data to threads and get data back
-        num_loops = math.ceil(len(frame_list) / self.num_threads)
+        num_loops = math.ceil(len(frame_list) / self.num_threads)  # the number of 'chunks' that the data will be split into
         for i in range(0, num_loops*self.num_threads, self.num_threads):
 
             for j in range(self.num_threads):
+
+                # avoid going over the end of the list
                 if i + j + 1 > len(frame_list):
                     break
+
+                # start the processing thread
                 self.threads.append(threading.Thread(target=self.thread, args=(j, frames_path + '\\' + frame_list[i + j])))
                 self.threads[j].start()
 
@@ -60,12 +67,6 @@ class process:
             self.write_thread = threading.Thread(target=self.write_to_video, args=(self.sync_buff.copy(),))
             self.writing_done.clear()
             self.write_thread.start()
-
-
-            #for j in range(len(self.threads)):
-            #    for k in range(len(self.sync_buff[j])):
-            #        self.out.write(self.sync_buff[j][k][0])
-            #        self.speed_at_frame.append(self.sync_buff[j][k][1])
 
             self.threads = []
 
@@ -86,10 +87,9 @@ class process:
 
     def thread(self, tid, batch):
         data = self.process_raw(batch)
-        self.sem.acquire()
         self.sync_buff.update({tid: data})
-        self.sem.release()
 
+    # loads the raw data and processes it to an RGB png format
     def process_raw(self, batch):
         processed = []
         with open(batch, "br") as f:
