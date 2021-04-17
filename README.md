@@ -14,6 +14,7 @@ Requirements:
 	•	Carla recommends two TCP ports and a good network connection, however depending on your image and video settings in the recording, an extremely fast network connection (2.5 Gb/s or higher) will be needed if running the client and server of separate machines
 	•	The, pygame, numpy, opencv2, and pillow python modules
 Recommendations and notes:
+
 	•	The video recording can use an extreme amount of disk speed, in my initial tests recording at 2560x1920 @ 20fps showed 375 MB/s of disk usage. I did it like this because processing the images into a video took too much CPU which would slow the simulator to a crawl, making it unusable. Depending on your settings and computer hardware, you could move the video processing to realtime. 
 Installation:
 
