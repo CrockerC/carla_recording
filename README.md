@@ -42,6 +42,7 @@ If you want to change the resolution of the recording or time step of the simula
 Note that increasing the resolution will reduce the performance of the simulation and increase the disk usage. 
 
 Then use the command “python3 make_video.py 0” to create the video. Where 0 is the video number. 
+
 make_video.py arguments:
 
 	•	 Argument 0, is the id of the video (must be an integer, no default)
