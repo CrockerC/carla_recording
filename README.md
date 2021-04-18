@@ -43,6 +43,7 @@ Note that increasing the resolution will reduce the performance of the simulatio
 
 Then use the command “python3 make_video.py 0” to create the video. Where 0 is the video number. 
 make_video.py arguments:
+
 	•	 Argument 0, is the id of the video (must be an integer, no default)
 make_video.py takes the raw data outputted by the manual_control script, downscales (CAN ONLY DOWNSCALE) and converts it to an mp4 video as well as giving a .txt file with the speed of the car in every frame
 
